@@ -1,6 +1,7 @@
 resource "aws_s3_bucket" "logs" {
    #checkov:skip=CKV_AWS_144: Replication not needed for a lab bucket, cost outweighs benefit
    #checkov:skip=CKV2_AWS_62: No event consumers in this lab
+   #checkov:skip=CKV_AWS_18: This is the log destination, logging it would create an endless chain of buckets
   bucket = "my-homelab-logs-bucket"
 }
 
@@ -48,6 +49,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
 }
 
 resource "aws_security_group" "web" {
+  #checkov:skip=CKV2_AWS_5: Scan-only lab file, no instance uses this group yet
   name        = "web-sg"
   description = "Web server access"
 
