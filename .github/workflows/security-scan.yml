@@ -43,7 +43,7 @@ jobs:
           ignore-unfixed: true
           exit-code: 1
   
-    gitleaks:
+  gitleaks:
     name: Gitleaks secret scan
     runs-on: ubuntu-latest
     steps:
