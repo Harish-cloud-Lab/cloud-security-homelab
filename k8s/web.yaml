@@ -19,6 +19,7 @@ metadata:
     app: web
   annotations:
     checkov.io/skip1: CKV_K8S_43=Local kind image has no registry digest to pin
+    checkov.io/skip2: CKV_K8S_15=Local kind image is not in registry, Always would failed to pull
 spec:
   replicas: 1
   selector:
@@ -33,9 +34,9 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        runAsUser: 101
-        runAsGroup: 101
-        fsGroup: 101
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
       containers:
