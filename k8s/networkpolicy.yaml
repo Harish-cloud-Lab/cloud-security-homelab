@@ -21,6 +21,10 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    - ports:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: client-ok
+      ports:
         - protocol: TCP
           port: 8080
