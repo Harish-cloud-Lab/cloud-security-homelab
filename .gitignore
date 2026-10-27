@@ -50,3 +50,4 @@ terraform.rc
 *.tar
 credentials
 .aws/
+scripts/.venv/
