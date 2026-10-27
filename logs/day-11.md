@@ -80,6 +80,13 @@ code /<dir-name>/<file-name2>.py
         -> RISKY    risky bucket (public access block missing or incomplete)
         -> Checked 2 buckets 1 risky.
 
+**Important**
+When i pushed my work on GitHub Actions Pipeline, My Pipeline went red so i further checked inside.
+found that because newer vulnerabilities published with their fixes were already existed.
+So, I read that table, patched the package in dockerfile  and verified the container run as non-root.
+And the pipeline went green.
+
+
 
 
 
