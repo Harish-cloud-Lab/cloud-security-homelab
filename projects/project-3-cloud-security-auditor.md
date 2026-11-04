@@ -33,5 +33,3 @@ It talks to the local fake server unless --real-aws is passed.
 - No IAM checks yet
 - Not tested against a real account
 
-## What I learned
-[Two or three sentences in your own words]
