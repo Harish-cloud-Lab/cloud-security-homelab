@@ -51,3 +51,7 @@ terraform.rc
 credentials
 .aws/
 scripts/.venv/
+reports/
+.pytest_cache/
+__pycache__/
+

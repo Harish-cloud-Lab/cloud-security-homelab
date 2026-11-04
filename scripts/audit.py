@@ -1,13 +1,13 @@
+import argparse
 import json
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
 
-ENDPOINT = "http://localhost:4566"
-s3 = boto3.client("s3", endpoint_url=ENDPOINT)
-ec2 = boto3.client("ec2", endpoint_url=ENDPOINT)
-
+DEFAULT_ENDPOINT = "http://localhost:4566"
 PUBLIC_ACL_GROUPS = {
     "http://acs.amazonaws.com/groups/global/AllUsers",
     "http://acs.amazonaws.com/groups/global/AuthenticatedUsers",
@@ -34,7 +34,7 @@ def as_list(value):
 
 # ---------- S3 checks ----------
 
-def check_public_access_block(name):
+def check_public_access_block(s3, name):
     try:
         cfg = s3.get_public_access_block(Bucket=name)["PublicAccessBlockConfiguration"]
     except ClientError as e:
@@ -46,7 +46,7 @@ def check_public_access_block(name):
     return []
 
 
-def check_encryption(name):
+def check_encryption(s3, name):
     try:
         s3.get_bucket_encryption(Bucket=name)
     except ClientError as e:
@@ -56,13 +56,13 @@ def check_encryption(name):
     return []
 
 
-def check_versioning(name):
+def check_versioning(s3, name):
     if s3.get_bucket_versioning(Bucket=name).get("Status") != "Enabled":
         return [finding(name, "versioning", "LOW", "Versioning is not enabled")]
     return []
 
 
-def check_bucket_policy(name):
+def check_bucket_policy(s3, name):
     try:
         raw = s3.get_bucket_policy(Bucket=name)["Policy"]
     except ClientError as e:
@@ -86,7 +86,7 @@ def check_bucket_policy(name):
     return results
 
 
-def check_bucket_acl(name):
+def check_bucket_acl(s3, name):
     results = []
     for grant in s3.get_bucket_acl(Bucket=name)["Grants"]:
         uri = grant.get("Grantee", {}).get("URI")
@@ -115,7 +115,7 @@ def open_to_world(rule):
     return v4 or v6
 
 
-def check_security_groups():
+def check_security_groups(ec2):
     results = []
     for sg in ec2.describe_security_groups()["SecurityGroups"]:
         name = sg["GroupName"]
@@ -139,25 +139,81 @@ def check_security_groups():
     return results
 
 
-# ---------- Run ----------
+# ---------- Run and report ----------
 
-def main():
+def run_audit(s3, ec2):
     buckets = [b["Name"] for b in s3.list_buckets()["Buckets"]]
     findings = []
     for name in buckets:
         for check in BUCKET_CHECKS:
-            findings.extend(check(name))
-    findings.extend(check_security_groups())
-
+            findings.extend(check(s3, name))
+    findings.extend(check_security_groups(ec2))
     findings.sort(key=lambda f: (SEVERITY_ORDER[f["severity"]], f["resource"]))
-    for f in findings:
-        print(f"{f['severity']:<7} {f['resource']:<18} {f['check']:<20} {f['message']}")
+    return buckets, findings
 
+
+def summarize(findings):
     counts = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
     for f in findings:
         counts[f["severity"]] += 1
+    return counts
+
+
+def write_reports(buckets, findings, counts, outdir):
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    data = {
+        "generated": stamp,
+        "buckets_checked": len(buckets),
+        "summary": counts,
+        "findings": findings,
+    }
+    (outdir / "audit-report.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    lines = [
+        "# Cloud security audit report",
+        "",
+        f"Generated: {stamp}",
+        "",
+        f"Buckets checked: {len(buckets)}",
+        "",
+        f"Summary: {counts['HIGH']} high, {counts['MEDIUM']} medium, {counts['LOW']} low",
+        "",
+    ]
+    if findings:
+        lines += ["| Severity | Resource | Check | Finding |", "|---|---|---|---|"]
+        for f in findings:
+            lines.append(f"| {f['severity']} | {f['resource']} | {f['check']} | {f['message']} |")
+    else:
+        lines.append("No findings.")
+    (outdir / "audit-report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Read-only audit of S3 buckets and security groups")
+    parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT,
+                        help="Endpoint of the fake AWS server (default: local Moto)")
+    parser.add_argument("--real-aws", action="store_true",
+                        help="Use real AWS instead of the local fake server")
+    parser.add_argument("--report-dir", default="reports", help="Where to write the reports")
+    args = parser.parse_args()
+
+    endpoint = None if args.real_aws else args.endpoint
+    s3 = boto3.client("s3", endpoint_url=endpoint)
+    ec2 = boto3.client("ec2", endpoint_url=endpoint)
+
+    buckets, findings = run_audit(s3, ec2)
+    counts = summarize(findings)
+
+    for f in findings:
+        print(f"{f['severity']:<7} {f['resource']:<18} {f['check']:<20} {f['message']}")
     print(f"\nChecked {len(buckets)} buckets and the security groups: "
           f"{counts['HIGH']} high, {counts['MEDIUM']} medium, {counts['LOW']} low")
+
+    write_reports(buckets, findings, counts, args.report_dir)
+    print(f"Reports written to {args.report_dir}/")
 
     sys.exit(1 if counts["HIGH"] else 0)
 
