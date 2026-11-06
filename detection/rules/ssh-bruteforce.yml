@@ -1,0 +1,7 @@
+id: ssh-bruteforce
+title: SSH brute force from a single address
+severity: HIGH
+type: threshold
+threshold: 5
+window_seconds: 120
+reference: MITRE ATT&CK T1110 (Brute Force)

@@ -54,4 +54,5 @@ scripts/.venv/
 reports/
 .pytest_cache/
 __pycache__/
+detection/sample_logs/
 

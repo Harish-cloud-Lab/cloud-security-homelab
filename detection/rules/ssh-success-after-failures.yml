@@ -1,0 +1,7 @@
+id: ssh-success-after-failures
+title: Successful SSH login after repeated failures
+severity: CRITICAL
+type: success_after_failures
+failures: 5
+window_seconds: 300
+reference: MITRE ATT&CK T1078 (Valid Accounts)
