@@ -1,4 +1,5 @@
 import argparse
+import json
 import re
 import sys
 from collections import defaultdict, deque
@@ -14,12 +15,18 @@ AUTH_LINE = re.compile(
 )
 
 
+def to_dt(text):
+    return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+
+# ---------- Loading ----------
+
 def parse_auth_line(line):
     m = AUTH_LINE.match(line.strip())
     if not m:
         return None
     return {
-        "time": datetime.fromisoformat(m["ts"].replace("Z", "+00:00")),
+        "time": to_dt(m["ts"]),
         "user": m["user"],
         "ip": m["ip"],
         "outcome": "success" if m["result"] == "Accepted" else "failure",
@@ -40,12 +47,42 @@ def load_events(path):
     return events, skipped
 
 
-def load_rules(folder):
-    rules = []
-    for path in sorted(Path(folder).glob("*.yml")):
-        rules.append(yaml.safe_load(path.read_text(encoding="utf-8")))
-    return rules
+def parse_cloud_event(raw):
+    try:
+        return {
+            "time": to_dt(raw["eventTime"]),
+            "name": raw["eventName"],
+            "user": raw.get("userIdentity", {}).get("userName", "unknown"),
+            "ip": raw["sourceIPAddress"],
+            "params": raw.get("requestParameters", {}),
+        }
+    except (KeyError, ValueError, AttributeError):
+        return None
 
+
+def load_cloud_events(path):
+    events, skipped = [], 0
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = parse_cloud_event(json.loads(line))
+        except json.JSONDecodeError:
+            event = None
+        if event:
+            events.append(event)
+        else:
+            skipped += 1
+    events.sort(key=lambda e: e["time"])
+    return events, skipped
+
+
+def load_rules(folder):
+    return [yaml.safe_load(p.read_text(encoding="utf-8"))
+            for p in sorted(Path(folder).glob("*.yml"))]
+
+
+# ---------- Detectors ----------
 
 def make_alert(rule, time, source, detail):
     return {
@@ -93,31 +130,81 @@ def detect_success_after_failures(events, rule):
     return alerts
 
 
-DETECTORS = {
+def detect_cloud_event(cloud_events, rule):
+    alerts = []
+    for e in cloud_events:
+        if e["name"] in rule["event_names"]:
+            resource = e["params"].get("bucketName") or e["params"].get("name") or "-"
+            detail = f"{e['name']} by {e['user']} on {resource}"
+            alerts.append(make_alert(rule, e["time"], e["ip"], detail))
+    return alerts
+
+
+def detect_correlation(base_alerts, rule):
+    window = rule["window_seconds"]
+    cloud_alerts = [a for a in base_alerts if a["rule_id"].startswith("cloud-")]
+    alerts = []
+    for first in (a for a in base_alerts if a["rule_id"] == rule["first_alert"]):
+        start = to_dt(first["time"])
+        hits = [
+            c for c in cloud_alerts
+            if c["source"] == first["source"]
+            and 0 <= (to_dt(c["time"]) - start).total_seconds() <= window
+        ]
+        if hits:
+            names = ", ".join(c["rule_id"] for c in hits)
+            detail = f"{len(hits)} cloud change(s) within {window}s of the login: {names}"
+            alerts.append(make_alert(rule, to_dt(hits[0]["time"]), first["source"], detail))
+    return alerts
+
+
+AUTH_DETECTORS = {
     "threshold": detect_threshold,
     "success_after_failures": detect_success_after_failures,
 }
 
 
-def run_detection(events, rules):
+def run_detection(auth_events, rules, cloud_events=None):
+    cloud_events = cloud_events or []
     alerts = []
     for rule in rules:
-        alerts.extend(DETECTORS[rule["type"]](events, rule))
+        kind = rule["type"]
+        if kind in AUTH_DETECTORS:
+            alerts.extend(AUTH_DETECTORS[kind](auth_events, rule))
+        elif kind == "cloud_event":
+            alerts.extend(detect_cloud_event(cloud_events, rule))
+        elif kind == "correlation":
+            continue  # handled after the base alerts exist
+        else:
+            raise ValueError(f"Unknown rule type '{kind}' in rule '{rule['id']}'")
+
+    base = list(alerts)
+    for rule in rules:
+        if rule["type"] == "correlation":
+            alerts.extend(detect_correlation(base, rule))
+
     alerts.sort(key=lambda a: a["time"])
     return alerts
 
 
+# ---------- Command line ----------
+
 def main():
     parser = argparse.ArgumentParser(description="Run detection rules against logs")
     parser.add_argument("--auth", required=True, help="Path to auth.log")
+    parser.add_argument("--cloud", help="Path to cloudtrail.jsonl (optional)")
     parser.add_argument("--rules", default="detection/rules", help="Folder of rule files")
     args = parser.parse_args()
 
-    events, skipped = load_events(args.auth)
+    auth, auth_skipped = load_events(args.auth)
+    cloud, cloud_skipped = ([], 0)
+    if args.cloud:
+        cloud, cloud_skipped = load_cloud_events(args.cloud)
     rules = load_rules(args.rules)
-    alerts = run_detection(events, rules)
+    alerts = run_detection(auth, rules, cloud)
 
-    print(f"Parsed {len(events)} lines, skipped {skipped}, {len(rules)} rules loaded")
+    print(f"Parsed {len(auth)} auth lines (skipped {auth_skipped}), "
+          f"{len(cloud)} cloud events (skipped {cloud_skipped}), {len(rules)} rules loaded")
     for a in alerts:
         print(f"{a['severity']:<9} {a['time']} {a['source']:<15} {a['title']} - {a['detail']}")
     print(f"\n{len(alerts)} alerts")

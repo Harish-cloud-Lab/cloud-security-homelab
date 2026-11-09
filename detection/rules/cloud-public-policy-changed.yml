@@ -1,0 +1,6 @@
+id: cloud-bucket-policy-changed
+title: S3 bucket policy changed
+severity: MEDIUM
+type: cloud_event
+event_names:
+  - PutBucketPolicy

@@ -1,0 +1,7 @@
+id: cloud-logging-disabled
+title: Audit logging stopped
+severity: CRITICAL
+type: cloud_event
+event_names:
+  - StopLogging
+reference: MITRE ATT&CK T1562.008 (Disable or Modify Cloud Logs)

@@ -1,0 +1,6 @@
+id: cloud-public-access-block-removed
+title: S3 public access block removed
+severity: HIGH
+type: cloud_event
+event_names:
+  - DeleteBucketPublicAccessBlock

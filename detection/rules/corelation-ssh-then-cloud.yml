@@ -1,0 +1,6 @@
+id: correlation-ssh-then-cloud
+title: Cloud changes from an address that just logged in after a brute force
+severity: CRITICAL
+type: correlation
+first_alert: ssh-success-after-failures
+window_seconds: 1800
