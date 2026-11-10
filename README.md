@@ -10,6 +10,7 @@ hardening, testing, and documenting results.
 - [Project 1: Secure IaC Pipeline](projects/project-1-secure-iac-pipeline.md)
 - [Project 2: Hardened Container and Kubernetes](projects/project-2-hardened-kubernetes.md)
 - [Project 3: Cloud Security Auditor](projects/project-3-cloud-security-auditor.md)
+- [Project 4: Detection and Response](projects/project-4-detection-and-response.md)
 
 ## Tools
 Terraform, Checkov, Trivy, Gitleaks, Docker, Kubernetes (kind, Calico),
